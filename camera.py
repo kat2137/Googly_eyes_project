@@ -7,24 +7,34 @@ from typing import Sequence
 from dataclasses import dataclass
 import numpy as np
 from PIL import Image
-
-
+from functools import total_ordering
 
 DEFAULT_FPS = 5
 FACEDETECTION_FILTER_PATH = './filters/haarcascade_frontalface_default.xml'
 
 @dataclass
+@total_ordering
 class Face:
     x: int
     y: int
     width: int
     height: int
 
+    @property
+    def size(self) -> int:
+        return self.width * self.height
+    
+    def __eq__(self, other):
+        return self.x == other.x and self.y == other.y and self.width == other.width and self.height == other.height
+    
+    def __lt__(self, other):
+        return self.size < other.size
+
+
 @dataclass
 class Dimensions: 
     height: int
     width: int
-
 
 def create_camera() -> Picamera2:
     camera = Picamera2()
@@ -45,6 +55,18 @@ def save_image(arr: np.ndarray) -> None:
     img = Image.fromarray(arr)
     img.save(f'./test_images/{ts}.png')
 
+def detect_faces(face_detector, gray_array: np.ndarray) -> Sequence[Face]:
+    faces = face_detector.detectMultiScale(gray_array, 1.05, 3)
+    if not len(faces): return []
+    print('FACE FOUND')
+    return [Face(x, y, width, height) for (x, y, width, height) in faces]
+
+def draw_faces(image_array: np.ndarray, faces: Sequence[Face]) -> np.ndarray:
+    for idx, face in enumerate(sorted(faces, reverse=True)):
+        if idx == 0:
+            cv2.rectangle(image_array, (face.x, face.y), (face.x + face.width, face.y + face.height), (0 , 255, 0, 0))
+        else: 
+            cv2.rectangle(image_array, (face.x, face.y), (face.x + face.width, face.y + face.height), (255, 0, 0, 0))
 
 
 def capture_video_frames(
@@ -55,27 +77,18 @@ def capture_video_frames(
         raise Exception("Cannot have 0 frames per second!")
 
     camera.start()
-    camera_dimensions = get_camera_dimensions(camera)
     while True:
         captured_array = capture_frame(camera)
-        save_image(captured_array)
         gray_array = cv2.cvtColor(captured_array, cv2.COLOR_BGR2GRAY)
-        save_image(gray_array)
-        faces = face_detector.detectMultiScale(gray_array, 1.1, 3)
-        print("FACE FOUND" if len(faces) > 0 else "NO FACE")
+        faces = detect_faces(face_detector, gray_array)
+        draw_faces(captured_array, faces)
+        if faces:
+            save_image(captured_array)
         time.sleep(1/fps)
-
-
-# def draw_faces(request, faces: Sequence[Face]):
-#     with MappedArray(request, "main") as m:
-#             for f in faces:
-#                 (x, y, w, h) = [c * n // d for c, n, d in zip(f, (w0, h0) * 2, (w1, h1) * 2)]
-#                 cv2.rectangle(m.array, (x, y), (x + w, y + h), (0, 255, 0, 0))
 
 
 if __name__ == '__main__':
     face_detector = cv2.CascadeClassifier(FACEDETECTION_FILTER_PATH)
     camera = create_camera()
     dimensions = get_camera_dimensions(camera)
-    print(dimensions)
     capture_video_frames(camera)
