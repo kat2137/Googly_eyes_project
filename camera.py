@@ -1,0 +1,1 @@
+# This script will open the camera and read the stream.
